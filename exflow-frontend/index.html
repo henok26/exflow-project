@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exflow - Export Webflow to HTML</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .gradient-text {
+            background: linear-gradient(90deg, #4F46E5, #A855F7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200">
+
+    <div class="min-h-screen flex flex-col items-center justify-center p-4">
+        <div class="w-full max-w-2xl text-center">
+            
+            <header class="mb-8">
+                <h1 class="text-5xl md:text-6xl font-bold mb-3">
+                    Turn <span class="gradient-text">Webflow</span> into Code
+                </h1>
+                <p class="text-lg text-gray-400">
+                    Export any Webflow site to clean, production-ready HTML, CSS, and JS.
+                </p>
+            </header>
+
+            <main class="bg-gray-800 border border-gray-700 rounded-xl p-6 md:p-8 shadow-2xl">
+                <form id="export-form" class="flex flex-col sm:flex-row items-center gap-4">
+                    <input 
+                        id="webflow-url"
+                        type="url" 
+                        placeholder="https://your-site.webflow.io" 
+                        required
+                        class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition duration-200 text-white placeholder-gray-500"
+                    >
+                    <button 
+                        id="export-button"
+                        type="submit" 
+                        class="w-full sm:w-auto flex items-center justify-center px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition duration-200 whitespace-nowrap"
+                    >
+                        <svg id="button-icon" class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        <span id="button-text">Export Site</span>
+                    </button>
+                </form>
+                <div id="message-box" class="mt-4 text-sm text-center"></div>
+            </main>
+
+        </div>
+    </div>
+
+    <script>
+        const exportForm = document.getElementById('export-form');
+        const webflowUrlInput = document.getElementById('webflow-url');
+        const exportButton = document.getElementById('export-button');
+        const buttonText = document.getElementById('button-text');
+        const buttonIcon = document.getElementById('button-icon');
+        const messageBox = document.getElementById('message-box');
+        
+        // The URL of your running backend server
+        const backendUrl = 'http://localhost:3000/export';
+
+        exportForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const webflowUrl = webflowUrlInput.value;
+            if (webflowUrl) {
+                startExportProcess(webflowUrl);
+            }
+        });
+
+        async function startExportProcess(webflowUrl) {
+            // 1. Update UI to show loading state
+            setLoadingState(true);
+            messageBox.textContent = 'Starting export... Please wait.';
+            messageBox.className = 'mt-4 text-sm text-center text-blue-400';
+
+            try {
+                // 2. Send the URL to the backend server
+                const response = await fetch(backendUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: webflowUrl }),
+                });
+
+                // 3. Check if the server responded successfully
+                if (!response.ok) {
+                    // If the server sends an error, display it
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Something went wrong on the server.');
+                }
+                
+                // 4. Handle the successful response (the ZIP file)
+                messageBox.textContent = 'Packaging files...';
+                const blob = await response.blob(); // Get the ZIP file as a blob
+
+                // Create a temporary link to trigger the download
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = downloadUrl;
+                a.download = 'website.zip'; // The name for the downloaded file
+                document.body.appendChild(a);
+                a.click();
+                
+                // Clean up the temporary link
+                window.URL.revokeObjectURL(downloadUrl);
+                a.remove();
+
+                // Show success message
+                messageBox.textContent = 'Your download has started successfully!';
+                messageBox.className = 'mt-4 text-sm text-center text-green-400';
+
+            } catch (error) {
+                // 5. Handle any errors during the fetch process
+                console.error('Export failed:', error);
+                messageBox.textContent = `Error: ${error.message}`;
+                messageBox.className = 'mt-4 text-sm text-center text-red-400';
+            } finally {
+                // 6. Restore the button to its original state
+                setLoadingState(false);
+            }
+        }
+        
+        function setLoadingState(isLoading) {
+            if (isLoading) {
+                exportButton.disabled = true;
+                exportButton.classList.add('opacity-50', 'cursor-not-allowed');
+                buttonText.textContent = 'Exporting...';
+                // Simple rotating loader animation
+                buttonIcon.innerHTML = `<svg class="animate-spin h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
+            } else {
+                exportButton.disabled = false;
+                exportButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                buttonText.textContent = 'Export Site';
+                buttonIcon.innerHTML = `<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>`;
+            }
+        }
+    </script>
+
+</body>
+</html>
+
