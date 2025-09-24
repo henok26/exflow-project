@@ -53,6 +53,7 @@ app.post('/export', async (req, res) => {
         const imagesFolder = zip.folder('images');
         
         const downloadedAssets = new Set(); // To avoid re-downloading the same asset
+        const imageUrlRegex = /url\((['"]?)(.*?)\1\)/g;
 
         while (queue.length > 0) {
             const currentUrl = queue.shift();
@@ -82,7 +83,6 @@ app.post('/export', async (req, res) => {
                     const downloadPromise = axios.get(absoluteCssUrl, { responseType: 'text' })
                         .then(async (response) => {
                           let cssContent = response.data;
-                          const imageUrlRegex = /url\((['"]?)(.*?)\1\)/g;
                           let match;
                           while ((match = imageUrlRegex.exec(cssContent)) !== null) {
                             const imageUrl = match[2];
@@ -120,6 +120,10 @@ app.post('/export', async (req, res) => {
                 $('img').each((index, element) => {
                     let imageUrl = $(element).attr('src');
                     if (!imageUrl || imageUrl.startsWith('data:')) return;
+                    const srcset = $(element).attr('srcset');
+                    if (srcset) {
+                        imageUrl = srcset.split(',')[0].trim().split(' ')[0];
+                    }
                     const absoluteImageUrl = new URL(imageUrl, currentUrl).href;
                     const imageFilename = path.basename(new URL(absoluteImageUrl).pathname);
                     $(element).attr('src', path.relative(path.dirname(getHtmlFilePath(currentUrl)), `images/${imageFilename}`).replace(/\\/g, '/'));
@@ -130,6 +134,44 @@ app.post('/export', async (req, res) => {
                         imagesFolder.file(imageFilename, response.data);
                     }).catch(err => console.error(`Failed to download ${imageFilename}: ${err.message}`));
                     assetPromises.push(downloadPromise);
+                });
+
+                // --- NEW: Process images from inline <style> tags ---
+                $('style').each((index, element) => {
+                    let styleContent = $(element).html();
+                    let match;
+                    while ((match = imageUrlRegex.exec(styleContent)) !== null) {
+                        const imageUrl = match[2];
+                        if (imageUrl.startsWith('data:')) continue;
+                        const absoluteImageUrl = new URL(imageUrl, currentUrl).href;
+                        const imageFilename = path.basename(new URL(absoluteImageUrl).pathname);
+                        styleContent = styleContent.replace(imageUrl, path.relative(path.dirname(getHtmlFilePath(currentUrl)), `images/${imageFilename}`).replace(/\\/g, '/'));
+                        if (downloadedAssets.has(absoluteImageUrl)) continue;
+                        downloadedAssets.add(absoluteImageUrl);
+                        axios.get(absoluteImageUrl, { responseType: 'arraybuffer' }).then(response => {
+                            imagesFolder.file(imageFilename, response.data);
+                        }).catch(err => console.error(`Failed to download inline style image ${imageFilename}: ${err.message}`));
+                    }
+                    $(element).html(styleContent);
+                });
+
+                // --- NEW: Process images from inline style attributes ---
+                $('[style*="background-image"]').each((index, element) => {
+                    let styleAttribute = $(element).attr('style');
+                    let match;
+                    while ((match = imageUrlRegex.exec(styleAttribute)) !== null) {
+                        const imageUrl = match[2];
+                        if (imageUrl.startsWith('data:')) continue;
+                        const absoluteImageUrl = new URL(imageUrl, currentUrl).href;
+                        const imageFilename = path.basename(new URL(absoluteImageUrl).pathname);
+                        styleAttribute = styleAttribute.replace(imageUrl, path.relative(path.dirname(getHtmlFilePath(currentUrl)), `images/${imageFilename}`).replace(/\\/g, '/'));
+                        if (downloadedAssets.has(absoluteImageUrl)) continue;
+                        downloadedAssets.add(absoluteImageUrl);
+                        axios.get(absoluteImageUrl, { responseType: 'arraybuffer' }).then(response => {
+                            imagesFolder.file(imageFilename, response.data);
+                        }).catch(err => console.error(`Failed to download style attribute image ${imageFilename}: ${err.message}`));
+                    }
+                    $(element).attr('style', styleAttribute);
                 });
 
                 // --- Find and queue internal links for crawling ---
