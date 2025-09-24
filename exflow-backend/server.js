@@ -47,14 +47,46 @@ app.post('/export', async (req, res) => {
 
     // --- Process CSS files ---
     $('link[rel="stylesheet"]').each((index, element) => {
-      const cssUrl = new URL($(element).attr('href'), baseURL.href).href;
+      const cssUrlHref = $(element).attr('href');
+      if (!cssUrlHref) return;
+
+      const cssUrl = new URL(cssUrlHref, baseURL.href).href;
       const cssFilename = path.basename(cssUrl).split('?')[0];
       $(element).attr('href', `./css/${cssFilename}`);
       
-      const downloadPromise = axios.get(cssUrl, { responseType: 'arraybuffer' })
-        .then(response => {
+      const downloadPromise = axios.get(cssUrl, { responseType: 'text' }) // Download as text to parse it
+        .then(async (response) => {
+          let cssContent = response.data;
           console.log(`Downloaded CSS: ${cssFilename}`);
-          cssFolder.file(cssFilename, response.data);
+          
+          // NEW: Find images within the CSS file
+          const imageUrlRegex = /url\((['"]?)(.*?)\1\)/g;
+          let match;
+          const cssImagePromises = [];
+
+          while ((match = imageUrlRegex.exec(cssContent)) !== null) {
+            const imageUrl = match[2];
+            if (imageUrl.startsWith('data:')) continue; // Skip inline data URIs
+
+            const absoluteImageUrl = new URL(imageUrl, cssUrl).href;
+            const imageFilename = path.basename(new URL(absoluteImageUrl).pathname);
+
+            // Add a promise to download this background image
+            const imageDownloadPromise = axios.get(absoluteImageUrl, { responseType: 'arraybuffer' })
+              .then(imageResponse => {
+                console.log(`Downloaded background image: ${imageFilename}`);
+                imagesFolder.file(imageFilename, imageResponse.data);
+              })
+              .catch(err => console.error(`Failed to download background image ${imageFilename}: ${err.message}`));
+            
+            cssImagePromises.push(imageDownloadPromise);
+            
+            // Rewrite the URL in the CSS content to be relative
+            cssContent = cssContent.replace(imageUrl, `../images/${imageFilename}`);
+          }
+          
+          await Promise.all(cssImagePromises);
+          cssFolder.file(cssFilename, cssContent); // Add the modified CSS to the zip
         })
         .catch(err => console.error(`Failed to download ${cssFilename}: ${err.message}`));
       assetPromises.push(downloadPromise);
@@ -75,12 +107,11 @@ app.post('/export', async (req, res) => {
       assetPromises.push(downloadPromise);
     });
 
-    // --- NEW: Process Image files ---
+    // --- Process Image files from <img> tags ---
     $('img').each((index, element) => {
         let imageUrl = $(element).attr('src');
-        if (!imageUrl) return; // Skip if there's no src attribute
+        if (!imageUrl || imageUrl.startsWith('data:')) return; 
 
-        // A simple way to handle srcset: just use the first URL
         const srcset = $(element).attr('srcset');
         if (srcset) {
             imageUrl = srcset.split(',')[0].trim().split(' ')[0];
@@ -89,9 +120,8 @@ app.post('/export', async (req, res) => {
         const absoluteImageUrl = new URL(imageUrl, baseURL.href).href;
         const imageFilename = path.basename(new URL(absoluteImageUrl).pathname);
 
-        // Update the HTML to point to the new local path
         $(element).attr('src', `./images/${imageFilename}`);
-        $(element).removeAttr('srcset'); // Remove srcset to avoid confusion
+        $(element).removeAttr('srcset');
 
         const downloadPromise = axios.get(absoluteImageUrl, { responseType: 'arraybuffer' })
             .then(response => {
