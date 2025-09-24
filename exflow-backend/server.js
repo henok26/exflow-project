@@ -13,6 +13,9 @@ const app = express();
 // 3. Define the port the server will run on
 const PORT = 3000;
 
+// --- Usage Tracking ---
+let exportCount = 0;
+
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(express.json());
@@ -21,6 +24,16 @@ app.use(express.json());
 app.get('/', (req, res) => {
   res.send('Hello from the Exflow Backend! The server is running.');
 });
+
+// --- NEW: Stats Route ---
+// You can visit this endpoint to see the current usage stats
+app.get('/stats', (req, res) => {
+    res.json({
+        totalExportsInitiated: exportCount,
+        serverUptimeInSeconds: Math.floor(process.uptime())
+    });
+});
+
 
 // Helper function to create a clean file path from a URL (e.g., /about -> about/index.html)
 const getHtmlFilePath = (pageUrl, baseUrl) => {
@@ -43,6 +56,10 @@ app.post('/export', async (req, res) => {
     }
 
     try {
+        // Increment the counter and log it
+        exportCount++;
+        console.log(`Export #${exportCount} initiated for URL: ${url}`);
+
         const zip = new JSZip();
         const visitedUrls = new Set();
         const queue = [new URL(url).href]; // Use a queue to manage pages to crawl
